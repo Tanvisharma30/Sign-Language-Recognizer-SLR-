@@ -1,191 +1,93 @@
 import streamlit as st
 import cv2
-import mediapipe as mp
 import numpy as np
 import joblib
-from collections import deque, Counter
-import pyttsx3
+import mediapipe as mp
 
-# -----------------------------
-# PAGE CONFIG
-# -----------------------------
-st.set_page_config(
-    page_title="Sign Language Recognition",
-    page_icon="🖐",
-    layout="wide"
-)
-
-# -----------------------------
-# LOAD MODEL
-# -----------------------------
+# ---------------------------
+# Load Model
+# ---------------------------
 model = joblib.load("model.pkl")
 
-# -----------------------------
-# TEXT TO SPEECH ENGINE
-# -----------------------------
-engine = pyttsx3.init()
-engine.setProperty('rate', 150)
-
-# -----------------------------
-# MEDIAPIPE SETUP
-# -----------------------------
+# ---------------------------
+# MediaPipe Setup
+# ---------------------------
 mp_hands = mp.solutions.hands
-
 hands = mp_hands.Hands(
     static_image_mode=False,
     max_num_hands=1,
     min_detection_confidence=0.7
 )
 
-# -----------------------------
-# SESSION STATE
-# -----------------------------
-if "word" not in st.session_state:
-    st.session_state.word = ""
+mp_draw = mp.solutions.drawing_utils
 
-if "last_added" not in st.session_state:
-    st.session_state.last_added = ""
+# ---------------------------
+# Gesture Labels
+# ---------------------------
+labels = ["A", "B", "C", "D", "E"]
 
-if "buffer" not in st.session_state:
-    st.session_state.buffer = deque(maxlen=10)
+# ---------------------------
+# Streamlit UI
+# ---------------------------
+st.title("🖐 Sign Language Recognition (A–E)")
+st.write("Upload a frame or use webcam (local run recommended)")
 
-# -----------------------------
-# HEADER
-# -----------------------------
-st.title("🖐 Real-Time Sign Language Recognition System")
-st.markdown("AI-based hand gesture recognition using MediaPipe + ML")
+# ---------------------------
+# Gesture Guide
+# ---------------------------
+st.sidebar.title("📖 Gesture Guide")
+st.sidebar.write("""
+A → Fist  
+B → Open Hand  
+C → Curved Hand  
+D → Point  
+E → Special Gesture  
+""")
 
-# -----------------------------
-# LAYOUT
-# -----------------------------
-left_col, right_col = st.columns([3, 1])
+# ---------------------------
+# Prediction Function
+# ---------------------------
+def predict_hand(landmarks):
+    data = np.array(landmarks).flatten().reshape(1, -1)
+    pred = model.predict(data)[0]
+    return pred
 
-# -----------------------------
-# RIGHT PANEL (CONTROLS)
-# -----------------------------
-with right_col:
+# ---------------------------
+# Webcam (ONLY LOCAL)
+# ---------------------------
+run = st.checkbox("📷 Enable Webcam (Works only on local system)")
 
-    st.subheader("⚙ Controls")
+FRAME_WINDOW = st.image([])
 
-    run = st.checkbox("Start Camera")
+if run:
+    cap = cv2.VideoCapture(0)
 
-    if st.button("🔄 Reset Word"):
-        st.session_state.word = ""
-        st.session_state.last_added = ""
+    while run:
+        success, frame = cap.read()
+        if not success:
+            st.error("Camera not accessible")
+            break
 
-    if st.button("🔊 Speak Word"):
+        frame = cv2.flip(frame, 1)
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-        if st.session_state.word != "":
-            engine.say(st.session_state.word)
-            engine.runAndWait()
+        result = hands.process(rgb)
 
-    st.divider()
+        if result.multi_hand_landmarks:
+            for handLms in result.multi_hand_landmarks:
+                mp_draw.draw_landmarks(frame, handLms, mp_hands.HAND_CONNECTIONS)
 
-    st.subheader("📖 Gesture Guide")
+                landmarks = []
+                for lm in handLms.landmark:
+                    landmarks.extend([lm.x, lm.y])
 
-    st.markdown("""
-    **A** → ✊ Fist  
+                pred = predict_hand(landmarks)
+                cv2.putText(frame, f"Prediction: {pred}", (50, 50),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-    **B** → ✋ Open Palm  
+        FRAME_WINDOW.image(frame, channels="BGR")
 
-    **C** → ☝️ Index Finger  
+    cap.release()
 
-    **D** → 👌 OK Sign  
-
-    **E** → ✌️ Peace Sign  
-    """)
-
-# -----------------------------
-# LEFT PANEL
-# -----------------------------
-with left_col:
-
-    frame_placeholder = st.empty()
-    prediction_placeholder = st.empty()
-    confidence_placeholder = st.empty()
-
-    st.subheader("📝 Detected Word")
-    word_placeholder = st.empty()
-
-# -----------------------------
-# CAMERA
-# -----------------------------
-cap = cv2.VideoCapture(0)
-
-while run:
-
-    success, frame = cap.read()
-    if not success:
-        st.error("Camera not accessible")
-        break
-
-    frame = cv2.flip(frame, 1)
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-    result = hands.process(rgb)
-
-    prediction = ""
-    confidence = 0
-
-    if result.multi_hand_landmarks:
-
-        for handLms in result.multi_hand_landmarks:
-
-            mp.solutions.drawing_utils.draw_landmarks(
-                frame,
-                handLms,
-                mp.solutions.hands.HAND_CONNECTIONS
-            )
-
-            # -------------------------
-            # NORMALIZED FEATURES
-            # -------------------------
-            features = []
-
-            wrist_x = handLms.landmark[0].x
-            wrist_y = handLms.landmark[0].y
-
-            for lm in handLms.landmark:
-                features.extend([
-                    lm.x - wrist_x,
-                    lm.y - wrist_y
-                ])
-
-            features = np.array(features).reshape(1, -1)
-
-            pred = model.predict(features)[0]
-            st.session_state.buffer.append(pred)
-
-    # -----------------------------
-    # SMOOTHING
-    # -----------------------------
-    if st.session_state.buffer:
-
-        most_common = Counter(st.session_state.buffer).most_common(1)[0]
-
-        prediction = most_common[0]
-        confidence = most_common[1] / len(st.session_state.buffer)
-
-    # -----------------------------
-    # WORD BUILDING
-    # -----------------------------
-    if (
-        confidence > 0.8 and
-        prediction != "" and
-        prediction != st.session_state.last_added
-    ):
-        st.session_state.word += prediction
-        st.session_state.last_added = prediction
-
-    # -----------------------------
-    # DISPLAY UI
-    # -----------------------------
-    frame_placeholder.image(frame, channels="BGR", use_container_width=True)
-
-    prediction_placeholder.success(f"Prediction: {prediction}")
-
-    confidence_placeholder.info(f"Confidence: {confidence:.2f}")
-
-    word_placeholder.markdown(f"# {st.session_state.word}")
-
-cap.release()
+else:
+    st.info("Enable webcam to run locally. Cloud deployment will only show UI.")
