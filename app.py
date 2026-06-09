@@ -10,10 +10,60 @@ import pyttsx3
 # PAGE CONFIG
 # -----------------------------
 st.set_page_config(
-    page_title="Sign Language Recognition",
+    page_title="SLR System",
     page_icon="🖐",
     layout="wide"
 )
+
+# -----------------------------
+# SIMPLE DARK UI CSS
+# -----------------------------
+st.markdown("""
+<style>
+.main {
+    background-color: #0e1117;
+    color: white;
+}
+
+.block-container {
+    padding-top: 2rem;
+}
+
+.title {
+    text-align: center;
+    font-size: 36px;
+    font-weight: bold;
+    margin-bottom: 0px;
+}
+
+.subtitle {
+    text-align: center;
+    color: #aaa;
+    font-size: 16px;
+    margin-bottom: 20px;
+}
+
+.card {
+    background: #1c1f26;
+    padding: 20px;
+    border-radius: 12px;
+    text-align: center;
+    margin-bottom: 15px;
+    border: 1px solid #2c2f36;
+}
+
+.big-text {
+    font-size: 40px;
+    font-weight: bold;
+}
+
+.status {
+    font-size: 14px;
+    color: #aaa;
+}
+
+</style>
+""", unsafe_allow_html=True)
 
 # -----------------------------
 # LOAD MODEL
@@ -21,16 +71,15 @@ st.set_page_config(
 model = joblib.load("model.pkl")
 
 # -----------------------------
-# TEXT TO SPEECH ENGINE
+# TEXT TO SPEECH
 # -----------------------------
 engine = pyttsx3.init()
 engine.setProperty('rate', 150)
 
 # -----------------------------
-# MEDIAPIPE SETUP
+# MEDIAPIPE
 # -----------------------------
 mp_hands = mp.solutions.hands
-
 hands = mp_hands.Hands(
     static_image_mode=False,
     max_num_hands=1,
@@ -52,59 +101,51 @@ if "buffer" not in st.session_state:
 # -----------------------------
 # HEADER
 # -----------------------------
-st.title("🖐 Real-Time Sign Language Recognition System")
-st.markdown("AI-based hand gesture recognition using MediaPipe + ML")
+st.markdown("<div class='title'>Sign Language Recognition</div>", unsafe_allow_html=True)
+st.markdown("<div class='subtitle'>Real-time A–E Gesture Detection using MediaPipe + ML</div>", unsafe_allow_html=True)
 
 # -----------------------------
 # LAYOUT
 # -----------------------------
-left_col, right_col = st.columns([3, 1])
+left, right = st.columns([3, 1])
 
 # -----------------------------
-# RIGHT PANEL (CONTROLS)
+# RIGHT PANEL
 # -----------------------------
-with right_col:
-
-    st.subheader("⚙ Controls")
+with right:
+    st.markdown("### Controls")
 
     run = st.checkbox("Start Camera")
 
-    if st.button("🔄 Reset Word"):
+    if st.button("Reset Word"):
         st.session_state.word = ""
         st.session_state.last_added = ""
 
-    if st.button("🔊 Speak Word"):
-
-        if st.session_state.word != "":
+    if st.button("Speak Word"):
+        if st.session_state.word:
             engine.say(st.session_state.word)
             engine.runAndWait()
 
-    st.divider()
+    st.markdown("### Gesture Guide")
 
-    st.subheader("📖 Gesture Guide")
-
-    st.markdown("""
-    **A** → ✊ Fist  
-
-    **B** → ✋ Open Palm  
-
-    **C** → ☝️ Index Finger  
-
-    **D** → 👌 OK Sign  
-
-    **E** → ✌️ Peace Sign  
-    """)
+    st.table({
+        "Letter": ["A", "B", "C", "D", "E"],
+        "Gesture": [
+            "Fist",
+            "Open Palm",
+            "Index Finger",
+            "OK Sign",
+            "Peace Sign"
+        ]
+    })
 
 # -----------------------------
 # LEFT PANEL
 # -----------------------------
-with left_col:
-
+with left:
     frame_placeholder = st.empty()
     prediction_placeholder = st.empty()
-    confidence_placeholder = st.empty()
-
-    st.subheader("📝 Detected Word")
+    confidence_bar = st.empty()
     word_placeholder = st.empty()
 
 # -----------------------------
@@ -137,19 +178,12 @@ while run:
                 mp.solutions.hands.HAND_CONNECTIONS
             )
 
-            # -------------------------
-            # NORMALIZED FEATURES
-            # -------------------------
             features = []
-
             wrist_x = handLms.landmark[0].x
             wrist_y = handLms.landmark[0].y
 
             for lm in handLms.landmark:
-                features.extend([
-                    lm.x - wrist_x,
-                    lm.y - wrist_y
-                ])
+                features.extend([lm.x - wrist_x, lm.y - wrist_y])
 
             features = np.array(features).reshape(1, -1)
 
@@ -160,14 +194,12 @@ while run:
     # SMOOTHING
     # -----------------------------
     if st.session_state.buffer:
-
         most_common = Counter(st.session_state.buffer).most_common(1)[0]
-
         prediction = most_common[0]
         confidence = most_common[1] / len(st.session_state.buffer)
 
     # -----------------------------
-    # WORD BUILDING
+    # WORD BUILDING (UNCHANGED LOGIC)
     # -----------------------------
     if (
         confidence > 0.8 and
@@ -178,14 +210,24 @@ while run:
         st.session_state.last_added = prediction
 
     # -----------------------------
-    # DISPLAY UI
+    # UI DISPLAY (IMPROVED ONLY)
     # -----------------------------
     frame_placeholder.image(frame, channels="BGR", use_container_width=True)
 
-    prediction_placeholder.success(f"Prediction: {prediction}")
+    prediction_placeholder.markdown(f"""
+    <div class="card">
+        <div class="status">Current Prediction</div>
+        <div class="big-text">{prediction}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    confidence_placeholder.info(f"Confidence: {confidence:.2f}")
+    confidence_bar.progress(float(confidence))
 
-    word_placeholder.markdown(f"# {st.session_state.word}")
+    word_placeholder.markdown(f"""
+    <div class="card">
+        <div class="status">Detected Word</div>
+        <div class="big-text">{st.session_state.word}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 cap.release()
